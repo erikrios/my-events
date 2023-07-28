@@ -1,36 +1,46 @@
 package main
 
 import (
-	"net/http"
+	"context"
+	"fmt"
+	"log"
 
-	"github.com/gorilla/mux"
+	"github.com/erikrios/my-events/config"
+	_ "github.com/erikrios/my-events/config"
+	"github.com/erikrios/my-events/controller"
+	"github.com/erikrios/my-events/lib/persistence/mongodb"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 func main() {
-}
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-func ServeAPI(endpoint string) error {
-	handler := &eventServiceHandler{}
-	r := mux.NewRouter()
-	eventsRouter := r.PathPrefix("/events").Subrouter()
+	connection := fmt.Sprintf(
+		"mongodb://%s:%s@%s:%d/%s/?authSource=admin",
+		config.DBUsername,
+		config.DBPassword,
+		config.DBHost,
+		config.DBPort,
+		config.DBName,
+	)
 
-	eventsRouter.Methods(http.MethodGet).Path("/{search_criteria}/{search}").HandlerFunc(handler.findEventHandler)
-	eventsRouter.Methods(http.MethodGet).Path("").HandlerFunc(handler.allEventHandler)
-	eventsRouter.Methods(http.MethodPost).Path("").HandlerFunc(handler.newEventHandler)
+	client, err := mongo.Connect(context.TODO(), options.Client().ApplyURI(connection))
+	if err != nil {
+		log.Fatalln(err)
+	}
 
-	return http.ListenAndServe(endpoint, r)
-}
+	defer func() {
+		if err := client.Disconnect(context.TODO()); err != nil {
+			log.Fatalln(err)
+		}
+	}()
 
-type eventServiceHandler struct{}
+	mongoDBHandler := mongodb.NewMongoDBLayer(client.Database(config.DBName))
+	log.Println("Successfully connected into database")
 
-func (eh *eventServiceHandler) findEventHandler(w http.ResponseWriter, r *http.Request) {
-
-}
-
-func (eh *eventServiceHandler) allEventHandler(w http.ResponseWriter, r *http.Request) {
-
-}
-
-func (eh *eventServiceHandler) newEventHandler(w http.ResponseWriter, r *http.Request) {
-
+	log.Println(fmt.Sprintf("Server started on port %d...\n", config.Port))
+	if err := controller.ServeAPI(mongoDBHandler); err != nil {
+		log.Fatalln(err)
+	}
 }
